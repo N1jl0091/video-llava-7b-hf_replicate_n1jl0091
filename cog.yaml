@@ -1,0 +1,80 @@
+
+#runs on macos & nvidia:
+
+# build:
+#   gpu: true
+#   python_version: "3.10"
+#   python_packages:
+#     - "torch>=2.0.0"
+#     - "torchvision"
+#     - "torchaudio"
+#     - "transformers==4.46.0"
+#     - "huggingface-hub==0.23.4"
+#     - "av==12.2.0"
+#     - "accelerate==0.31.0"
+#     - "pillow==10.4.0"
+#     - "sentencepiece==0.2.0"
+#     - "protobuf==5.27.2"
+#     - "numpy==1.26.4"
+#     - "bitsandbytes>=0.41.1"
+#   system_packages:
+#     - "ffmpeg"
+#     - "rsync"
+#   run:
+#     - pip install --pre torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+#     - mkdir -p /src/model_cache
+#     - chmod -R 777 /src  # Added this line to fix permissions
+#     # Debug commands to see what's available
+#     - echo "=== Current directory contents ==="
+#     - ls -la
+#     - echo "=== /src/app contents ==="
+#     - ls -la /src/app || echo "No /src/app directory"
+#     # Try first location
+#     - test -d "/src/app/model_cache" && cp -rv /src/app/model_cache/* /src/model_cache/ || echo "Not found in /src/app"
+#     # Try second location
+#     - test -d "model_cache" && cp -rv model_cache/* /src/model_cache/ || echo "Not found in current dir"
+#     # Verify final state
+#     - ls -la /src/model_cache || echo "Failed to copy models"
+#     - echo "video-llava env is ready!"
+
+# predict: "predict.py:Predictor"
+# image: "r8.im/uncensored-com/video-llava-7b-hf"
+
+
+# optimized solely for nvidia replicate:
+
+build:
+  gpu: true
+  python_version: "3.10"
+  python_packages:
+    - "torch>=2.0.0"
+    - "torchvision"
+    - "torchaudio"
+    - "transformers==4.46.0"
+    - "huggingface-hub>=0.24.0"
+    - "hf_transfer"
+    - "av==12.2.0"
+    - "accelerate==0.31.0"
+    - "pillow==10.4.0"
+    - "sentencepiece==0.2.0"
+    - "protobuf==5.27.2"
+    - "numpy==1.26.4"
+    - "bitsandbytes>=0.41.1"
+  system_packages:
+    - "ffmpeg"
+    - "rsync"
+  run:
+    - pip install --no-deps --force-reinstall 'huggingface-hub[fast_download]'
+    - HF_HUB_ENABLE_HF_TRANSFER=1 python -c "from huggingface_hub import snapshot_download; snapshot_download('LanguageBind/Video-LLaVA-7B-hf', repo_type='model', local_files_only=False)"
+    - echo "video-llava env is ready!"
+
+# environment:
+# HUGGING_FACE_HUB_TOKEN: ""
+# HF_HUB_ENABLE_HF_TRANSFER: "1"
+
+predict: "predict.py:Predictor"
+image: "r8.im/uncensored-com/video-llava-7b-hf"
+
+# Added concurrency configuration
+concurrency:
+  max: 32  # A100 can handle multiple concurrent requests

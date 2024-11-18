@@ -6,18 +6,17 @@ import numpy as np
 import av
 import time
 from typing import List
+from typing import Union
 from cog import BasePredictor, Input, Path
-from transformers import VideoLlavaProcessor, VideoLlavaForConditionalGeneration
+from transformers import VideoLlavaProcessor, VideoLlavaForConditionalGeneration, BitsAndBytesConfig
+from PIL import Image
 
-async def download_weights(url: str, dest: str):
-    """Download model weights asynchronously."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                with open(dest, 'wb') as f:
-                    f.write(await response.read())
-            else:
-                raise RuntimeError(f"Failed to download weights: {response.status}")
+def print_log(*args, **kwargs):
+    print(*args, **kwargs, flush=True)
+
+
+WEIGHTS_CACHE = "/src/weights"
+
 
 def read_video_pyav(container, indices):
     frames = []
@@ -34,44 +33,65 @@ class Predictor:
         self.model = None
         self.processor = None
 
-    async def setup(self):
+    def setup(self):
         start_time = time.time()
         print("Starting model setup...")
 
-        os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "/src/model_cache")
+        os.makedirs(WEIGHTS_CACHE, exist_ok=True)
+        os.environ["TRANSFORMERS_CACHE"] = WEIGHTS_CACHE
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
-        model_id = os.getenv("MODEL_ID", "LanguageBind/Video-LLaVA-7B-hf")
-        weights_url = os.getenv("WEIGHTS_URL", "https://path/to/weights/model.tar")
-        weights_dest = os.path.join(os.environ["TRANSFORMERS_CACHE"], "model.tar")
+             # Print configuration details
+        print_log("\nModel Configuration:")
+        print_log(f"• Device: {self.device.type}")
+      # print_log(f"• Dtype: {torch.bfloat16 if self.device.type == 'cuda' else torch.float32}")
+      # print_log(f"• Device Map: {'auto' if self.device.type == 'cuda' else 'None'}")
+      # print_log(f"• Quantization: {'8-bit' if self.device.type == 'cuda' else 'None'}")
+        print_log(f"• Cache Dir: {os.environ['TRANSFORMERS_CACHE']}")
+      # print_log(f"• Offload Folder: /tmp/offload")
+        print_log("--------------------\n")
 
-        # Download weights asynchronously
-        await download_weights(weights_url, weights_dest)
+        model_id = os.getenv("MODEL_ID", "LanguageBind/Video-LLaVA-7B-hf")
+
 
         try:
-            self.model = VideoLlavaForConditionalGeneration.from_pretrained(
-                weights_dest,
-                torch_dtype=torch.bfloat16 if self.device.type == "cuda" else torch.float32,
-                device_map="auto" if self.device.type == "cuda" else None,
-                trust_remote_code=True,
-                use_safetensors=True,
-                load_in_8bit=True  # Enables quantization for smaller memory usage
-            )
+                print(f"Loading model from local cache at {WEIGHTS_CACHE}...")
+                # bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+                self.model = VideoLlavaForConditionalGeneration.from_pretrained(
+                    WEIGHTS_CACHE,
+                    cache_dir=WEIGHTS_CACHE,
+                    torch_dtype=torch.bfloat16 if self.device.type == "cuda" else torch.float32,
+                    device_map="auto" if self.device.type == "cuda" else None,
+                    trust_remote_code=True,
+                    use_safetensors=True,
+                   # offload_folder="/tmp/offload",  # Enable disk offloading for faster boot?
+                    # quantization_config=bnb_config
+                )
+                self.processor = VideoLlavaProcessor.from_pretrained(
+                    WEIGHTS_CACHE,
+                    trust_remote_code=True
+                )
+                if self.device.type != "cuda":
+                    self.model = self.model.to(self.device)
 
-            if self.device.type != "cuda":
-                self.model = self.model.to(self.device)
+                if self.device.type == "cuda":
+                    print('setting memory fraction to 0.95')
+                    # torch.cuda.empty_cache()
+                    torch.cuda.set_per_process_memory_fraction(0.95)
 
-            # Load processor
-            self.processor = VideoLlavaProcessor.from_pretrained(model_id)
-            self.model.eval()
-            print(f"Model loaded in {time.time() - start_time:.2f}s")
+
+                    # Load processor
+                self.model.eval()
+                print(f"Model loaded in {time.time() - start_time:.2f}s")
+
 
         except Exception as e:
             print(f"Error during setup: {str(e)}")
             raise RuntimeError(f"Model setup failed: {str(e)}") from e
 
-    async def predict(self, videos: List[Path], prompts: List[str], num_frames: int = 10,
+    def predict(self, videos: List[Path], prompts: List[str], num_frames: int = 10,
                       max_new_tokens: int = 500, temperature: float = 0.1, top_p: float = 0.9) -> List[str]:
         results = []
         for video, prompt in zip(videos, prompts):

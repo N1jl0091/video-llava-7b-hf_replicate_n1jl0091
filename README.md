@@ -1,6 +1,6 @@
 Video-llava-7b-hf_replicate
 
-Process to upload model to replicate with model load time:
+Process to upload model to replicate with quick model load time:
 - Donwload weights from hugging face locally
 - Add to directory containing other needed files
 - Build docker image

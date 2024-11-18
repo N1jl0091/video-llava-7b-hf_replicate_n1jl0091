@@ -13,3 +13,5 @@ Failed Methods of upload with quick boot:
 - Hugging Face Transfer: Too Slow
 
 The Model is Constantly being tweaked, but please only use the latest version - for the best results :)
+
+NB: Weights are not included in this repo, due to large file size.
